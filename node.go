@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	proto "handin4/grpc"
+	proto "main/grpc"
 	"io"
 	"log"
 	"net"
