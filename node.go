@@ -1,3 +1,21 @@
+package main
+
+import (
+	"bufio"
+	"context"
+	"fmt"
+	"io"
+	"log"
+	"net"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+)
+
 type ChitChatClient struct {
 	client proto.Client
 	clk    int32
@@ -8,7 +26,7 @@ func main() {
 	ccclient := &ChitChatClient{}
 
 	ccclient.start_client()
-	
+
 	//Start up and configure logging output to file
 	f, err := os.OpenFile("logs/serverlog"+time.Now().Format("20060102150405")+".log", os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
@@ -24,7 +42,6 @@ func main() {
 	server := &ChitChatServer{}
 
 	server.start_server()
-}
 }
 
 func (c *ChitChatClient) start_client() {
@@ -140,7 +157,6 @@ func (c *ChitChatClient) handle_incoming(proto_client proto.ChitChatClient) {
 		fmt.Printf("[%s @ %d] %s: %s \n", message.Timestamp, c.clk, message.Username, message.Message)
 	}
 }
-
 
 type ChitChatServer struct {
 	proto.UnimplementedChitChatServer
