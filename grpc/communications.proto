@@ -3,7 +3,6 @@ option go_package = ".";
 
 service RicartArgawala {
    rpc Request (Message) returns (Reply);
-   rpc Reply (Client) returns ();
 }
 
 message Message{
