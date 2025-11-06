@@ -3,14 +3,11 @@ option go_package = ".";
 
 service RicartArgawala {
    rpc Request (Message) returns (Reply);
+   rpc Reply (Client) returns ();
 }
 
 message Message{
     string nodeId = 1; // user id
     int32 clock = 2; //Logical clock
-}
-
-message Reply{
-    string nodeId = 1; // user id
-    int32 clock = 2; //Logical clock
+    string content =3; //message content
 }
