@@ -1,0 +1,27 @@
+syntax = "proto3";
+option go_package = ".";
+
+service ChitChat {
+   rpc PublishMessage (Message) returns (Response);
+   rpc Subscribe (Client) returns (stream Message);
+   rpc Unsubscribe (Client) returns (Response);
+}
+
+message Message{
+    string uuid = 1; // user id
+    string message = 2;
+    int32 clock = 3; //Logical clock
+    string username = 4;
+    string timestamp = 5;
+}
+
+message Response{
+    bool result = 1;
+    int32 clock = 3; //Logical clock
+} 
+
+message Client{
+    string uuid = 1;
+    string username = 2;
+    int32 clock = 3; //Logical clock
+}
