@@ -19,7 +19,6 @@ import (
 
 type RicartArgawalaClient struct {
 	nodeId string
-	clk    int32
 	peers  map[string]proto.RicartArgawalaClient
 	mu     sync.Mutex
 }
@@ -53,7 +52,7 @@ func main() {
 		log.Fatalf("Usage: go run main.go <NodeID> <Port>")
 	}
 
-	node := &RicartArgawalaClient{nodeId: nodeId, clk: 0, peers: make(map[string]proto.RicartArgawalaClient)}
+	node := &RicartArgawalaClient{nodeId: nodeId, peers: make(map[string]proto.RicartArgawalaClient)}
 	server := &RicartArgawalaServer{
 		nodeId:          nodeId,
 		clk:             0,
@@ -87,15 +86,15 @@ func (c *RicartArgawalaClient) startPeerDiscovery() {
 				c.mu.Lock()
 				if _, exists := c.peers[addr]; !exists {
 					opts := grpc.WithTransportCredentials(insecure.NewCredentials())
-					conn, err := grpc.Dial(addr, opts) // Use Dial, not NewClient
+					conn, err := grpc.NewClient(addr, opts)
 					if err != nil {
-						log.Printf("[%s] Failed to connect to %s: %v", c.nodeId, addr, err)
+						log.Printf("[Node %s] Failed to connect to %s: %v", c.nodeId, addr, err)
 						c.mu.Unlock()
 						continue
 					}
 					client := proto.NewRicartArgawalaClient(conn)
 					c.peers[addr] = client
-					log.Printf("[%s] Added new peer: %s", c.nodeId, addr)
+					log.Printf("[Node %s] Added new peer: %s", c.nodeId, addr)
 				}
 				c.mu.Unlock()
 			}
@@ -110,27 +109,27 @@ func (s *RicartArgawalaServer) Request(ctx context.Context, msg *proto.Message) 
 	defer s.mu.Unlock()
 
 	s.clk = max(s.clk, msg.Clock) + 1
-	fmt.Printf("[%s] Received %s from %s (Clock=%d)", s.nodeId, msg.Content, msg.NodeId, msg.Clock)
-	log.Printf("[%s] Received %s from %s (Clock=%d)", s.nodeId, msg.Content, msg.NodeId, msg.Clock)
+	fmt.Printf("[Node %s] Received %s from %s (Clock=%d)\n", s.nodeId, msg.Content, msg.NodeId, msg.Clock)
+	log.Printf("[Node %s] Received %s from %s (Clock=%d)", s.nodeId, msg.Content, msg.NodeId, msg.Clock)
 
 	switch msg.Content {
 	case "Request":
 		// Should we defer or reply immediately?
-		deferReply := s.wantCS && ((msg.Clock < s.requestTS) == false && msg.NodeId > s.nodeId)
+		deferReply := s.wantCS && (s.requestTS < msg.Clock || (s.requestTS == msg.Clock && s.nodeId < msg.NodeId))
 		if deferReply {
 			s.deferredReplies[msg.NodeId] = true
-			fmt.Printf("[%s] Deferred reply to %s", s.nodeId, msg.NodeId)
-			log.Printf("[%s] Deferred reply to %s", s.nodeId, msg.NodeId)
+			fmt.Printf("[Node %s] Deferred reply to %s\n", s.nodeId, msg.NodeId)
+			log.Printf("[Node %s] Deferred reply to %s", s.nodeId, msg.NodeId)
 		} else {
-			fmt.Println("[%s] Sending REPLY to %s", s.nodeId, msg.NodeId)
-			log.Printf("[%s] Sending REPLY to %s", s.nodeId, msg.NodeId)
+			fmt.Printf("[Node %s] Sending REPLY to %s\n", s.nodeId, msg.NodeId)
+			log.Printf("[Node %s] Sending REPLY to %s", s.nodeId, msg.NodeId)
 			return &proto.Message{NodeId: s.nodeId, Clock: s.clk, Content: "Reply"}, nil
 		}
 
 	case "Reply":
 		s.replyCount++
-		fmt.Printf("[%s] Got reply from %s (%d/%d)", s.nodeId, msg.NodeId, s.replyCount, s.totalNodes-1)
-		log.Printf("[%s] Got reply from %s (%d/%d)", s.nodeId, msg.NodeId, s.replyCount, s.totalNodes-1)
+		fmt.Printf("[Node %s] Got reply from %s (%d/%d)\n", s.nodeId, msg.NodeId, s.replyCount, s.totalNodes-1)
+		log.Printf("[Node %s] Got reply from %s (%d/%d)", s.nodeId, msg.NodeId, s.replyCount, s.totalNodes-1)
 	}
 
 	return &proto.Message{NodeId: s.nodeId, Clock: s.clk, Content: "Ack"}, nil
@@ -147,15 +146,16 @@ func (c *RicartArgawalaClient) ricartArgawala(s *RicartArgawalaServer) {
 	ctx := context.Background()
 
 	for {
-		time.Sleep(100 * time.Millisecond)
-
+		s.mu.Lock()
 		// Randomly decide whether to enter CS
 		if rand.Float32() < 0.5 { // 50% chance to skip
-			log.Printf("[%s] Decided not to enter CS this time", c.nodeId)
+			fmt.Printf("[Node %s] Decided not to enter CS this time \n", c.nodeId)
+			log.Printf("[Node %s] Decided not to enter CS this time", c.nodeId)
+			s.mu.Unlock()
+			time.Sleep(time.Duration(rand.Intn(3000)+1000) * time.Millisecond) // 1-4 seconds
 			continue
 		}
-
-		s.mu.Lock()
+		s.totalNodes = len(c.peers)
 		s.wantCS = true
 		s.replyCount = 0
 		s.requestTS = s.clk + 1
@@ -168,6 +168,9 @@ func (c *RicartArgawalaClient) ricartArgawala(s *RicartArgawalaServer) {
 			peers = append(peers, p)
 		}
 
+		s.mu.Lock()
+		s.clk++
+		s.mu.Unlock()
 		for _, peer := range peers {
 			go func(p proto.RicartArgawalaClient) {
 				resp, err := p.Request(ctx, &proto.Message{
@@ -182,9 +185,10 @@ func (c *RicartArgawalaClient) ricartArgawala(s *RicartArgawalaServer) {
 
 				if resp.Content == "Reply" {
 					s.mu.Lock()
+					s.clk = max(s.clk, resp.Clock) + 1
 					s.replyCount++
 					s.mu.Unlock()
-					log.Printf("[%s] Got direct reply from peer", c.nodeId)
+					log.Printf("[%s] Got reply from %s (%d/%d)", s.nodeId, resp.NodeId, s.replyCount, s.totalNodes-1)
 				}
 			}(peer)
 		}
@@ -201,32 +205,40 @@ func (c *RicartArgawalaClient) ricartArgawala(s *RicartArgawalaServer) {
 		}
 
 		// Enter critical section
+		log.Printf("[Node %s] ENTERING CRITICAL SECTION at clock %d", c.nodeId, s.clk)
 		fmt.Printf("\n[Node %s] ENTERING CRITICAL SECTION at clock %d\n", c.nodeId, s.clk)
+		s.mu.Lock()
+		s.clk++
+		s.mu.Unlock()
 		time.Sleep(3 * time.Second)
 		fmt.Printf("[Node %s] LEAVING CRITICAL SECTION at clock %d\n", c.nodeId, s.clk)
+		log.Printf("[Node %s] LEAVING CRITICAL SECTION at clock %d", c.nodeId, s.clk)
 
 		// Release deferred replies
 		s.mu.Lock()
 		c.mu.Lock()
 		s.wantCS = false
-		c.clk++ //Lamport clock sending request
+		s.clk++ //Lamport clock sending request
 		for node := range s.deferredReplies {
 			go func(target string) {
-				// Find the peer client and send the reply
-				for _, peer := range peers {
+				c.mu.Lock()
+				defer c.mu.Unlock()
+				if peer, ok := c.peers[target]; ok {
 					peer.Request(ctx, &proto.Message{
 						NodeId:  c.nodeId,
 						Clock:   s.clk,
 						Content: "Reply",
 					})
+					log.Printf("[%s] Sent deferred reply to %s", c.nodeId, target)
 				}
-				fmt.Printf("[%s] Sent deferred reply to %s", c.nodeId, target)
-				log.Printf("[%s] Sent deferred reply to %s", c.nodeId, target)
 			}(node)
 		}
 		s.deferredReplies = make(map[string]bool)
 		c.mu.Unlock()
 		s.mu.Unlock()
+
+		// Random wait before next CS attempt
+		time.Sleep(time.Duration(rand.Intn(4000)+1000) * time.Millisecond) // 1-5 seconds
 	}
 }
 
