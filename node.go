@@ -148,7 +148,7 @@ func (c *RicartArgawalaClient) ricartArgawala(s *RicartArgawalaServer) {
 	for {
 		s.mu.Lock()
 		// Randomly decide whether to enter CS
-		if rand.Float32() < 0.5 { // 50% chance to skip
+		if rand.Float32() < 0.3 { // 30% chance to skip
 			fmt.Printf("[Node %s] Decided not to enter CS this time \n", c.nodeId)
 			log.Printf("[Node %s] Decided not to enter CS this time", c.nodeId)
 			s.mu.Unlock()
