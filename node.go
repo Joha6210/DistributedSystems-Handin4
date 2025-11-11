@@ -20,6 +20,7 @@ import (
 type RicartArgawalaClient struct {
 	nodeId string
 	peers  map[string]proto.RicartArgawalaClient
+	seen   map[string]bool
 	mu     sync.Mutex
 }
 
@@ -52,7 +53,10 @@ func main() {
 		log.Fatalf("Usage: go run main.go <NodeID> <Port>")
 	}
 
-	node := &RicartArgawalaClient{nodeId: nodeId, peers: make(map[string]proto.RicartArgawalaClient)}
+	node := &RicartArgawalaClient{nodeId: nodeId,
+		peers: make(map[string]proto.RicartArgawalaClient),
+		seen:  make(map[string]bool),
+	}
 	server := &RicartArgawalaServer{
 		nodeId:          nodeId,
 		clk:             0,
@@ -80,7 +84,7 @@ func (c *RicartArgawalaClient) startPeerDiscovery() {
 	go func() {
 		for {
 			discovered := make(chan string)
-			go discoverNodes(c.nodeId, discovered)
+			go discoverNodes(c.nodeId, discovered, c.seen)
 
 			for addr := range discovered {
 				c.mu.Lock()
@@ -115,7 +119,7 @@ func (s *RicartArgawalaServer) Request(ctx context.Context, msg *proto.Message) 
 	switch msg.Content {
 	case "Request":
 		// Should we defer or reply immediately?
-		deferReply := s.wantCS && (s.requestTS < msg.Clock || (s.requestTS == msg.Clock && s.nodeId < msg.NodeId))
+		deferReply := s.wantCS && (msg.Clock < s.requestTS || (msg.Clock == s.requestTS && msg.NodeId < s.nodeId))
 		if deferReply {
 			s.deferredReplies[msg.NodeId] = true
 			fmt.Printf("[Node %s] Deferred reply to %s\n", s.nodeId, msg.NodeId)
@@ -145,6 +149,14 @@ func max(a, b int32) int32 {
 func (c *RicartArgawalaClient) ricartArgawala(s *RicartArgawalaServer) {
 	ctx := context.Background()
 
+	noOfPeers := len(c.peers)
+
+	for noOfPeers < 1 {
+		log.Printf("[Node %s] Waiting for peers to appear...", c.nodeId)
+		time.Sleep(1 * time.Second)
+		noOfPeers = len(c.peers)
+	}
+
 	for {
 		s.mu.Lock()
 		// Randomly decide whether to enter CS
@@ -155,13 +167,14 @@ func (c *RicartArgawalaClient) ricartArgawala(s *RicartArgawalaServer) {
 			time.Sleep(time.Duration(rand.Intn(3000)+1000) * time.Millisecond) // 1-4 seconds
 			continue
 		}
-		s.totalNodes = len(c.peers)
+		s.totalNodes = len(c.peers) + 1 //Add ourself
 		s.wantCS = true
 		s.replyCount = 0
 		s.requestTS = s.clk + 1
 		s.mu.Unlock()
 
-		log.Printf("[%s] Broadcasting request for CS (Clock=%d)", c.nodeId, s.requestTS)
+		fmt.Printf("[Node %s] Broadcasting request for CS (Clock=%d)\n", c.nodeId, s.requestTS)
+		log.Printf("[Node %s] Broadcasting request for CS (Clock=%d)", c.nodeId, s.requestTS)
 		c.mu.Lock()
 		peers := make([]proto.RicartArgawalaClient, 0, len(c.peers))
 		for _, p := range c.peers {
@@ -179,7 +192,7 @@ func (c *RicartArgawalaClient) ricartArgawala(s *RicartArgawalaServer) {
 					Content: "Request",
 				})
 				if err != nil {
-					log.Printf("[%s] Error sending request: %v", c.nodeId, err)
+					log.Printf("[Node %s] Error sending request: %v", c.nodeId, err)
 					return
 				}
 
@@ -188,7 +201,7 @@ func (c *RicartArgawalaClient) ricartArgawala(s *RicartArgawalaServer) {
 					s.clk = max(s.clk, resp.Clock) + 1
 					s.replyCount++
 					s.mu.Unlock()
-					log.Printf("[%s] Got reply from %s (%d/%d)", s.nodeId, resp.NodeId, s.replyCount, s.totalNodes-1)
+					log.Printf("[Node %s] Got reply from %s (%d/%d)", s.nodeId, resp.NodeId, s.replyCount, s.totalNodes-1)
 				}
 			}(peer)
 		}
@@ -229,7 +242,7 @@ func (c *RicartArgawalaClient) ricartArgawala(s *RicartArgawalaServer) {
 						Clock:   s.clk,
 						Content: "Reply",
 					})
-					log.Printf("[%s] Sent deferred reply to %s", c.nodeId, target)
+					log.Printf("[Node %s] Sent deferred reply to %s", c.nodeId, target)
 				}
 			}(node)
 		}
@@ -247,11 +260,11 @@ func (s *RicartArgawalaServer) start_server() {
 	grpcServer := grpc.NewServer()
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
-		log.Fatalf("[%s] Could not create server on %s: %v", s.nodeId, address, err)
+		log.Fatalf("[Node %s] Could not create server on %s: %v", s.nodeId, address, err)
 	}
 
 	proto.RegisterRicartArgawalaServer(grpcServer, s)
-	log.Printf("[%s] gRPC server now listening on %s...\n", s.nodeId, address)
+	log.Printf("[Node %s] gRPC server now listening on %s...\n", s.nodeId, address)
 	grpcServer.Serve(listener)
 }
 
@@ -267,35 +280,47 @@ func advertiseNode(nodeID string, port int) {
 	if err != nil {
 		log.Fatalf("Failed to advertise node %s: %v", nodeID, err)
 	}
-	fmt.Sprintf("[%s] Advertised on network (port %d)", nodeID, port)
-	log.Printf("[%s] Advertised on network (port %d)", nodeID, port)
+	fmt.Sprintf("[Node %s] Advertised on network (port %d)", nodeID, port)
+	log.Printf("[Node %s] Advertised on network (port %d)", nodeID, port)
 
 	// Keep advertising until process exits
 	defer server.Shutdown()
 	select {}
 }
 
-func discoverNodes(nodeID string, discovered chan<- string) {
+func discoverNodes(nodeID string, discovered chan<- string, seen map[string]bool) {
 	resolver, err := zeroconf.NewResolver(nil)
 	if err != nil {
-		log.Fatalf("[%s] Failed to initialize resolver: %v", nodeID, err)
+		log.Fatalf("[Node %s] Failed to initialize resolver: %v", nodeID, err)
 	}
 
 	entries := make(chan *zeroconf.ServiceEntry)
 	go func(results <-chan *zeroconf.ServiceEntry) {
 		for entry := range results {
-			if entry.Instance != fmt.Sprintf("node-%s", nodeID) {
-				address := fmt.Sprintf("%s:%d", entry.AddrIPv4[0].String(), entry.Port)
-				log.Printf("[%s] Discovered peer: %s (%s)", nodeID, entry.Instance, address)
-				discovered <- address
+			if entry.Instance == fmt.Sprintf("node-%s", nodeID) {
+				continue // skip self
 			}
+			if len(entry.AddrIPv4) == 0 {
+				continue
+			}
+
+			address := fmt.Sprintf("%s:%d", entry.AddrIPv4[0].String(), entry.Port)
+
+			// skip duplicates
+			if seen[address] {
+				continue
+			}
+			seen[address] = true
+
+			log.Printf("[Node %s] Discovered new peer: %s (%s)", nodeID, entry.Instance, address)
+			discovered <- address
 		}
 	}(entries)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	err = resolver.Browse(ctx, "_ricartagrawala._tcp", "local.", entries)
-	if err != nil {
+
+	if err := resolver.Browse(ctx, "_ricartagrawala._tcp", "local.", entries); err != nil {
 		log.Fatalf("[%s] Failed to browse: %v", nodeID, err)
 	}
 
