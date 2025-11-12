@@ -1,5 +1,10 @@
 # How to run
 
+## Dependencies
+Zeroconf installation for mDNS discovery of nodes on a local network
+As this project depends on the package `zeroconf`, installation is required:
+`go get -u github.com/grandcat/zeroconf`
+
 To start the nodes run:
 
 ```bash
@@ -43,6 +48,3 @@ Each node continuously listens for other nodes with [zeroconf](https://github.co
 └─ readme.md    # This readme.md
 ```
 
-- Zeroconf installation
-As this project depends on the package `zeroconf`, installation is required:
-`go get -u github.com/grandcat/zeroconf`

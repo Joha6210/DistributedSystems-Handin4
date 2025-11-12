@@ -9,6 +9,9 @@
 - Discussion of Ricart-Argawala implementation
 - Appendix
 
+
+<div class="page"/>
+
 ## System requirements
 
 This project aims to implement an version of the Ricart-Argawala algorithm to uphold mutual exclusion in a distributed system in golang.
@@ -39,6 +42,8 @@ The CS is simulated by a print statement that is surrounded by log and print sta
   log.Printf("[Node %s] LEAVING CRITICAL SECTION at clock %d", c.nodeId, s.clk)
 ```
 
+<div class="page"/>
+
 ### R2 (Safety)
 
 The Ricart-Agrawala algorithm makes sure that only one process (or in this instance node) enters the CS at a time.
@@ -50,17 +55,23 @@ This is done by having each node that is requesting/wanting to enter the CS, wai
 
 Every node in the system, will keep an internal queue of requests that when the nodes defer an reply it will add the request to the queue (if the request is sent after the node itself wants to enter the CS). When the node has been granted access to the CS, done the work that was necessary, it will then reply to all of the request in queue that they can access the CS.
 
+<div class="page"/>
+
 ## Discussion of Ricart-Argawala implementation
+
 The projects implementation of the Ricart-Argawala algorithm meets the criteria that applies to an algorithm used for mutual exclusion in a distributed system. By examining the logs of the 3 nodes, we can see that at most one node is accessing the CS at a given time, while the others are waiting for their turn. By announcing on the network when the node, currently accessing the CS, is done, it will let the other nodes use the resource at some point. Each node will let other nodes gain access first, if they requested it first, based on the Lamport Clock of the system.
 
 - ME1 (safe): at most one process in CS at any time  
 - ME2 (live): request to enter/exit eventually succeeds.
 - ME3 (order): entry to CS respects happens-before of enter() calls
+
 [Coordination & Agreement](https://learnit.itu.dk/pluginfile.php/394900/course/section/165227/Coordination_and_agreement.pdf?time=1761814143344) (pdf slide 10)
 
 Node 3 broadcasts a CS request:
 
-`2025/11/12 17:06:26 [Node 3] Broadcasting request for CS (Clock=0)`
+```log
+2025/11/12 17:06:26 [Node 3] Broadcasting request for CS (Clock=0)
+```
 
 Node 1 and Node 2 each receive this request and send a reply:
 
@@ -72,7 +83,7 @@ Node 1 and Node 2 each receive this request and send a reply:
 2025/11/12 17:06:26 [Node 2] Sending REPLY to 3
 ```
 
-which node 3 receives and enters the CS:
+Node 3 receives the reply and enters the CS:
 
 ```log
 2025/11/12 17:06:26 [Node 3] Got reply from 1 (1/2)
@@ -88,8 +99,9 @@ While node 3 is in the CS it receives request from both node 1 and 2, which it d
 2025/11/12 17:06:28 [Node 3] Received Request from 2 (Clock=2)
 2025/11/12 17:06:28 [Node 3] Deferred reply to 2
 ```
+<div class="page"/>
 
-when node 3 is done in the CS it replies to the queue (node 1 and 2):
+When node 3 is done in the CS it replies to the queue (node 1 and 2):
 
 ```log
 2025/11/12 17:06:30 [Node 3] LEAVING CRITICAL SECTION at clock 7
@@ -125,7 +137,9 @@ Node 2 can now enter the CS:
 2025/11/12 17:06:33 [Node 2] ENTERING CRITICAL SECTION at clock 13
 ```
 
-This sequence demonstrates correct mutual exclusion — only one node is in the CS at a time, and entry is granted in timestamp order.
+This sequence demonstrates mutual exclusion in a distributed system using the Ricart-Agrawala algorithm in golang.
+
+<div class="page"/>
 
 ## Appendix
 
@@ -516,59 +530,3 @@ This sequence demonstrates correct mutual exclusion — only one node is in the 
 2025/11/12 17:08:00 [Node 3] Sending REPLY to 1
 2025/11/12 17:08:01 [Node 3] Broadcasting request for CS (Clock=117)
 ```
-
-## Implementation
-- Languages / frameworks / libraries used
-- Important modules and brief description
-- Key algorithms or protocols implemented
-- Known limitations / trade-offs
-
-## Evaluation
-- Experimental setup (hardware, network, datasets)
-- Metrics to measure
-- Test cases and scenarios
-
-## Results
-- Tables / charts (embed images or markdown tables)
-- Numeric outcomes with short interpretation
-
-## Discussion
-- Analysis of results
-- Sources of error, reproducibility concerns
-- Alternatives considered
-
-## Conclusion and Future Work
-- Summary of achievements
-- Short list of possible improvements and next steps
-
-## How to run / Reproduce
-Prerequisites:
-- OS, runtime, packages
-
-Build & run (example):
-```bash
-# install deps
-make install
-
-# run tests
-make test
-
-# start service
-./run.sh
-```
-Configuration: describe config files / environment variables.
-
-
-```
-
-## References
-- [Paper / spec / library] Title — Author — Year
-- URLs and dataset sources
-
-## Appendix
-- Raw logs, extended tables, command outputs
-- Submission checklist:
-    - [ ] Report written
-    - [ ] Code compiles
-    - [ ] Tests included
-    - [ ] Instructions verified
