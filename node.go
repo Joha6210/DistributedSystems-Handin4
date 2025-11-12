@@ -116,7 +116,6 @@ func (c *RicartArgawalaClient) startPeerDiscovery() {
 
 func (s *RicartArgawalaServer) Request(ctx context.Context, msg *proto.Message) (*proto.Message, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	s.clk = max(s.clk, msg.Clock) + 1
 	fmt.Printf("[Node %s] Received %s from %s (Clock=%d)\n", s.nodeId, msg.Content, msg.NodeId, msg.Clock)
@@ -135,6 +134,7 @@ func (s *RicartArgawalaServer) Request(ctx context.Context, msg *proto.Message) 
 		} else {
 			fmt.Printf("[Node %s] Sending REPLY to %s\n", s.nodeId, msg.NodeId)
 			log.Printf("[Node %s] Sending REPLY to %s", s.nodeId, msg.NodeId)
+			s.mu.Unlock()
 			return &proto.Message{NodeId: s.nodeId, Clock: s.clk, Content: "Reply"}, nil
 		}
 
@@ -144,6 +144,7 @@ func (s *RicartArgawalaServer) Request(ctx context.Context, msg *proto.Message) 
 		log.Printf("[Node %s] Got reply from %s (%d/%d)", s.nodeId, msg.NodeId, s.replyCount, s.totalNodes-1)
 	}
 
+	s.mu.Unlock()
 	return &proto.Message{NodeId: s.nodeId, Clock: s.clk, Content: "Ack"}, nil
 }
 
