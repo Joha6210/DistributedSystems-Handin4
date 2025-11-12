@@ -1,10 +1,13 @@
-# Ricart-Argawala in Golang 
+# Ricart-Argawala in Golang
+
 **Author(s):** Johannes Jensen  
 **Course:** Distributed Systems — Handin 4  
 **Date:** 12-11-2025
+
 **Repo:** [Github repository](https://github.com/Joha6210/DistributedSystems-Handin4)
 
 ## Table of contents
+
 - System requirements
 - Discussion of Ricart-Argawala implementation
 - Appendix
@@ -99,6 +102,7 @@ While node 3 is in the CS it receives request from both node 1 and 2, which it d
 2025/11/12 17:06:28 [Node 3] Received Request from 2 (Clock=2)
 2025/11/12 17:06:28 [Node 3] Deferred reply to 2
 ```
+
 <div class="page"/>
 
 When node 3 is done in the CS it replies to the queue (node 1 and 2):
