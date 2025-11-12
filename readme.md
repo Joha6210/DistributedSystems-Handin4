@@ -11,9 +11,9 @@ f.ex. to create a node with node id 1 on port 5001:
 ```bash
 go run node.go 1 5001
 ```
+(A node will wait for other peers to be discovered before wanting to enter the critical section)
 
-If you want to run n number of nodes:
-
+To run multiple nodes use different terminals to run them:
 
 ```bash
 go run node.go 1 5001  //In terminal 1
@@ -25,7 +25,7 @@ go run node.go 3 5003  //In terminal 3
 go run node.go n 5000+n  //In terminal n
 ```
 
-Each node continously listens for other nodes with [zeroconf](https://github.com/grandcat/zeroconf) mDNS discovery with the service type:
+Each node continuously listens for other nodes with [zeroconf](https://github.com/grandcat/zeroconf) mDNS discovery with the service type:
 
 ```golang
 "_ricartagrawala._tcp"
