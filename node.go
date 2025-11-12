@@ -17,6 +17,11 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
+type PeerInfo struct {
+	NodeID  string
+	Address string
+}
+
 type RicartArgawalaClient struct {
 	nodeId string
 	peers  map[string]proto.RicartArgawalaClient
@@ -30,6 +35,7 @@ type RicartArgawalaServer struct {
 	clk             int32
 	serverPort      int
 	wantCS          bool
+	inCS            bool
 	requestTS       int32
 	replyCount      int
 	totalNodes      int
@@ -83,27 +89,27 @@ func main() {
 func (c *RicartArgawalaClient) startPeerDiscovery() {
 	go func() {
 		for {
-			discovered := make(chan string)
+			discovered := make(chan PeerInfo)
 			go discoverNodes(c.nodeId, discovered, c.seen)
 
-			for addr := range discovered {
+			for peer := range discovered {
 				c.mu.Lock()
-				if _, exists := c.peers[addr]; !exists {
+				if _, exists := c.peers[peer.NodeID]; !exists {
 					opts := grpc.WithTransportCredentials(insecure.NewCredentials())
-					conn, err := grpc.NewClient(addr, opts)
+					conn, err := grpc.NewClient(peer.Address, opts)
 					if err != nil {
-						log.Printf("[Node %s] Failed to connect to %s: %v", c.nodeId, addr, err)
+						log.Printf("[Node %s] Failed to connect to %s: %v", c.nodeId, peer.Address, err)
 						c.mu.Unlock()
 						continue
 					}
 					client := proto.NewRicartArgawalaClient(conn)
-					c.peers[addr] = client
-					log.Printf("[Node %s] Added new peer: %s", c.nodeId, addr)
+					c.peers[peer.NodeID] = client
+					log.Printf("[Node %s] Added new peer: %s (%s)", c.nodeId, peer.NodeID, peer.Address)
 				}
 				c.mu.Unlock()
 			}
 
-			time.Sleep(5 * time.Second) // adjust interval
+			time.Sleep(5 * time.Second)
 		}
 	}()
 }
@@ -119,7 +125,9 @@ func (s *RicartArgawalaServer) Request(ctx context.Context, msg *proto.Message) 
 	switch msg.Content {
 	case "Request":
 		// Should we defer or reply immediately?
-		deferReply := s.wantCS && (msg.Clock < s.requestTS || (msg.Clock == s.requestTS && msg.NodeId < s.nodeId))
+
+		deferReply := (s.wantCS || s.inCS) && (s.requestTS < msg.Clock || (s.requestTS == msg.Clock && s.nodeId < msg.NodeId))
+
 		if deferReply {
 			s.deferredReplies[msg.NodeId] = true
 			fmt.Printf("[Node %s] Deferred reply to %s\n", s.nodeId, msg.NodeId)
@@ -158,7 +166,14 @@ func (c *RicartArgawalaClient) ricartArgawala(s *RicartArgawalaServer) {
 	}
 
 	for {
+
 		s.mu.Lock()
+
+		// Send any pending deferred replies first
+		if len(s.deferredReplies) > 0 && !s.wantCS && !s.inCS {
+			s.sendDeferredReplies(c)
+		}
+
 		// Randomly decide whether to enter CS
 		if rand.Float32() < 0.3 { // 30% chance to skip
 			fmt.Printf("[Node %s] Decided not to enter CS this time \n", c.nodeId)
@@ -170,7 +185,8 @@ func (c *RicartArgawalaClient) ricartArgawala(s *RicartArgawalaServer) {
 		s.totalNodes = len(c.peers) + 1 //Add ourself
 		s.wantCS = true
 		s.replyCount = 0
-		s.requestTS = s.clk + 1
+		s.requestTS = s.clk
+		s.clk++
 		s.mu.Unlock()
 
 		fmt.Printf("[Node %s] Broadcasting request for CS (Clock=%d)\n", c.nodeId, s.requestTS)
@@ -183,7 +199,6 @@ func (c *RicartArgawalaClient) ricartArgawala(s *RicartArgawalaServer) {
 
 		s.mu.Lock()
 		s.clk++
-		s.mu.Unlock()
 		for _, peer := range peers {
 			go func(p proto.RicartArgawalaClient) {
 				resp, err := p.Request(ctx, &proto.Message{
@@ -197,14 +212,13 @@ func (c *RicartArgawalaClient) ricartArgawala(s *RicartArgawalaServer) {
 				}
 
 				if resp.Content == "Reply" {
-					s.mu.Lock()
 					s.clk = max(s.clk, resp.Clock) + 1
 					s.replyCount++
-					s.mu.Unlock()
 					log.Printf("[Node %s] Got reply from %s (%d/%d)", s.nodeId, resp.NodeId, s.replyCount, s.totalNodes-1)
 				}
 			}(peer)
 		}
+		s.mu.Unlock()
 		c.mu.Unlock()
 		// Wait until all replies are received
 		for {
@@ -221,6 +235,7 @@ func (c *RicartArgawalaClient) ricartArgawala(s *RicartArgawalaServer) {
 		log.Printf("[Node %s] ENTERING CRITICAL SECTION at clock %d", c.nodeId, s.clk)
 		fmt.Printf("\n[Node %s] ENTERING CRITICAL SECTION at clock %d\n", c.nodeId, s.clk)
 		s.mu.Lock()
+		s.inCS = true
 		s.clk++
 		s.mu.Unlock()
 		time.Sleep(3 * time.Second)
@@ -229,29 +244,38 @@ func (c *RicartArgawalaClient) ricartArgawala(s *RicartArgawalaServer) {
 
 		// Release deferred replies
 		s.mu.Lock()
-		c.mu.Lock()
 		s.wantCS = false
-		s.clk++ //Lamport clock sending request
-		for node := range s.deferredReplies {
-			go func(target string) {
-				c.mu.Lock()
-				defer c.mu.Unlock()
-				if peer, ok := c.peers[target]; ok {
-					peer.Request(ctx, &proto.Message{
-						NodeId:  c.nodeId,
-						Clock:   s.clk,
-						Content: "Reply",
-					})
-					log.Printf("[Node %s] Sent deferred reply to %s", c.nodeId, target)
-				}
-			}(node)
-		}
-		s.deferredReplies = make(map[string]bool)
-		c.mu.Unlock()
-		s.mu.Unlock()
+		s.inCS = false
 
+		s.sendDeferredReplies(c)
+		s.mu.Unlock()
 		// Random wait before next CS attempt
 		time.Sleep(time.Duration(rand.Intn(4000)+1000) * time.Millisecond) // 1-5 seconds
+	}
+}
+
+func (s *RicartArgawalaServer) sendDeferredReplies(c *RicartArgawalaClient) {
+	deferred := make([]string, 0, len(s.deferredReplies))
+	for node := range s.deferredReplies {
+		deferred = append(deferred, node)
+	}
+	s.deferredReplies = make(map[string]bool)
+	s.clk++
+	for _, target := range deferred {
+		if peer, ok := c.peers[target]; ok {
+			go func(t string, p proto.RicartArgawalaClient) {
+				_, err := p.Request(context.Background(), &proto.Message{
+					NodeId:  s.nodeId,
+					Clock:   s.clk,
+					Content: "Reply",
+				})
+				if err != nil {
+					log.Printf("[Node %s] Error sending deferred reply to %s: %v", s.nodeId, t, err)
+				} else {
+					log.Printf("[Node %s] Sent deferred reply to %s", s.nodeId, t)
+				}
+			}(target, peer)
+		}
 	}
 }
 
@@ -288,7 +312,7 @@ func advertiseNode(nodeID string, port int) {
 	select {}
 }
 
-func discoverNodes(nodeID string, discovered chan<- string, seen map[string]bool) {
+func discoverNodes(nodeID string, discovered chan<- PeerInfo, seen map[string]bool) {
 	resolver, err := zeroconf.NewResolver(nil)
 	if err != nil {
 		log.Fatalf("[Node %s] Failed to initialize resolver: %v", nodeID, err)
@@ -304,26 +328,23 @@ func discoverNodes(nodeID string, discovered chan<- string, seen map[string]bool
 				continue
 			}
 
-			address := fmt.Sprintf("%s:%d", entry.AddrIPv4[0].String(), entry.Port)
-
-			// skip duplicates
-			if seen[address] {
+			addr := fmt.Sprintf("%s:%d", entry.AddrIPv4[0].String(), entry.Port)
+			if seen[addr] {
 				continue
 			}
-			seen[address] = true
+			seen[addr] = true
 
-			log.Printf("[Node %s] Discovered new peer: %s (%s)", nodeID, entry.Instance, address)
-			discovered <- address
+			peerID := entry.Instance[len("node-"):] // extract numeric ID
+			log.Printf("[Node %s] Discovered new peer: %s (%s)", nodeID, peerID, addr)
+			discovered <- PeerInfo{NodeID: peerID, Address: addr}
 		}
 	}(entries)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-
 	if err := resolver.Browse(ctx, "_ricartagrawala._tcp", "local.", entries); err != nil {
 		log.Fatalf("[%s] Failed to browse: %v", nodeID, err)
 	}
-
-	<-ctx.Done() // wait until timeout
+	<-ctx.Done()
 	close(discovered)
 }
