@@ -53,46 +53,73 @@ Every node in the system, will keep an internal queue of requests that when the 
 
 ## Discussion of Ricart-Argawala implementation
 
-Node 1 broadcasts a CS request:
+Node 3 broadcasts a CS request:
 
-`2025/11/11 17:40:36 [Node 1] Broadcasting request for CS (Clock=3)`
+`2025/11/12 17:06:26 [Node 3] Broadcasting request for CS (Clock=0)`
 
 
-Node 2 and Node 3 each receive this request and send a reply:
+Node 1 and Node 2 each receive this request and send a reply:
 
 ```log
-2025/11/11 17:40:36 [Node 2] Received Request from 1 (Clock=3)
-2025/11/11 17:40:36 [Node 2] Sending REPLY to 1
+2025/11/12 17:06:26 [Node 1] Received Request from 3 (Clock=0)
+2025/11/12 17:06:26 [Node 1] Sending REPLY to 3
+
+2025/11/12 17:06:26 [Node 2] Received Request from 3 (Clock=0)
+2025/11/12 17:06:26 [Node 2] Sending REPLY to 3
 ```
 
-[Node 2] Received Request from 1 (Clock=3)
-[Node 2] Sending REPLY to 1
-[Node 3] Received Request from 1 (Clock=3)
-[Node 3] Sending REPLY to 1
+which node 3 receives and enters the CS:
 
+```log
+2025/11/12 17:06:26 [Node 3] Got reply from 1 (1/2)
+2025/11/12 17:06:26 [Node 3] Got reply from 2 (2/2)
+2025/11/12 17:06:27 [Node 3] ENTERING CRITICAL SECTION at clock 4
+```
 
-Once Node 1 collects both replies, it enters the CS:
+While node 3 is in the CS it receives request from both node 1 and 2, which it defers:
 
-[Node 1] Got reply from 3 (1/2)
-[Node 1] Got reply from 2 (2/2)
-[Node 1] ENTERING CRITICAL SECTION at clock 8
+```log
+2025/11/12 17:06:28 [Node 3] Received Request from 1 (Clock=1)
+2025/11/12 17:06:28 [Node 3] Deferred reply to 1
+2025/11/12 17:06:28 [Node 3] Received Request from 2 (Clock=2)
+2025/11/12 17:06:28 [Node 3] Deferred reply to 2
+```
 
+when node 3 is done in the CS it replies to the queue (node 1 and 2):
 
-At the same moment, Node 2 also requests the CS:
+```log
+2025/11/12 17:06:30 [Node 3] LEAVING CRITICAL SECTION at clock 7
+2025/11/12 17:06:30 [Node 3] Sent deferred reply to 1
+2025/11/12 17:06:30 [Node 3] Sent deferred reply to 2
+```
 
-[Node 2] Broadcasting request for CS (Clock=5)
+As node 1 was the first to send the request (Clock = 1), node 1 enters the CS
 
+```log
+2025/11/12 17:06:28 [Node 1] Broadcasting request for CS (Clock=1)
+2025/11/12 17:06:28 [Node 1] Got reply from 2 (1/2)
+2025/11/12 17:06:28 [Node 1] Received Request from 2 (Clock=2)
+2025/11/12 17:06:28 [Node 1] Deferred reply to 2                    //Node 1's request has Clock = 1 which is before node 2's request
+2025/11/12 17:06:30 [Node 1] Received Reply from 3 (Clock=8)
+2025/11/12 17:06:30 [Node 1] Got reply from 3 (2/2)                 //Got reply from node 3 because it is done in the CS
+2025/11/12 17:06:30 [Node 1] ENTERING CRITICAL SECTION at clock 9   //Go reply from 2 out of 2 nodes, and can safely enter the CS
+```
 
-But because Node 1 is already inside its CS and has an earlier timestamp, Node 2 must wait for Node 1 to release the CS.
-Once Node 1 leaves:
+After node 1 is done, it then replies to node 2:
 
-[Node 1] LEAVING CRITICAL SECTION at clock 10
+```log
+2025/11/12 17:06:33 [Node 1] LEAVING CRITICAL SECTION at clock 11
+[...]
+2025/11/12 17:06:33 [Node 1] Sent deferred reply to 2
+```
 
+Node 2 can now enter the CS:
 
-it sends any deferred replies, allowing Node 2 to enter:
-
-[Node 2] ENTERING CRITICAL SECTION at clock 11
-
+```log
+2025/11/12 17:06:33 [Node 2] Received Reply from 1 (Clock=12)
+2025/11/12 17:06:33 [Node 2] Got reply from 1 (2/2)
+2025/11/12 17:06:33 [Node 2] ENTERING CRITICAL SECTION at clock 13
+```
 
 This sequence demonstrates correct mutual exclusion — only one node is in the CS at a time, and entry is granted in timestamp order.
 
@@ -101,269 +128,389 @@ This sequence demonstrates correct mutual exclusion — only one node is in the 
 ### Log - Node 1
 
 ```text
-2025/11/11 17:40:32 [Node 1] gRPC server now listening on :5001...
-2025/11/11 17:40:32 [Node 1] Advertised on network (port 5001)
-2025/11/11 17:40:34 [Node 1] Received Request from 3 (Clock=1)
-2025/11/11 17:40:34 [Node 1] Sending REPLY to 3
-2025/11/11 17:40:35 [Node 1] Waiting for peers to appear...
-2025/11/11 17:40:35 [Node 1] Discovered new peer: node-3 (192.168.2.75:5003)
-2025/11/11 17:40:35 [Node 1] Discovered new peer: node-2 (192.168.2.75:5002)
-2025/11/11 17:40:35 [Node 1] Added new peer: 192.168.2.75:5003
-2025/11/11 17:40:35 [Node 1] Added new peer: 192.168.2.75:5002
-2025/11/11 17:40:36 [Node 1] Broadcasting request for CS (Clock=3)
-2025/11/11 17:40:36 [Node 1] Got reply from 3 (1/2)
-2025/11/11 17:40:36 [Node 1] Got reply from 2 (2/2)
-2025/11/11 17:40:36 [Node 1] ENTERING CRITICAL SECTION at clock 8
-2025/11/11 17:40:37 [Node 1] Received Request from 2 (Clock=5)
-2025/11/11 17:40:37 [Node 1] Sending REPLY to 2
-2025/11/11 17:40:39 [Node 1] LEAVING CRITICAL SECTION at clock 10
-2025/11/11 17:40:44 [Node 1] Broadcasting request for CS (Clock=12)
-2025/11/11 17:40:44 [Node 1] Got reply from 2 (1/2)
-2025/11/11 17:40:44 [Node 1] Got reply from 3 (2/2)
-2025/11/11 17:40:44 [Node 1] Received Request from 3 (Clock=14)
-2025/11/11 17:40:44 [Node 1] Sending REPLY to 3
-2025/11/11 17:40:44 [Node 1] ENTERING CRITICAL SECTION at clock 17
-2025/11/11 17:40:44 [Node 1] Received Request from 2 (Clock=16)
-2025/11/11 17:40:44 [Node 1] Sending REPLY to 2
-2025/11/11 17:40:47 [Node 1] LEAVING CRITICAL SECTION at clock 19
-2025/11/11 17:40:51 [Node 1] Broadcasting request for CS (Clock=21)
-2025/11/11 17:40:51 [Node 1] Got reply from 3 (1/2)
-2025/11/11 17:40:51 [Node 1] Got reply from 2 (2/2)
-2025/11/11 17:40:51 [Node 1] ENTERING CRITICAL SECTION at clock 27
-2025/11/11 17:40:52 [Node 1] Received Request from 2 (Clock=27)
-2025/11/11 17:40:52 [Node 1] Sending REPLY to 2
-2025/11/11 17:40:53 [Node 1] Received Request from 3 (Clock=29)
-2025/11/11 17:40:53 [Node 1] Sending REPLY to 3
-2025/11/11 17:40:54 [Node 1] LEAVING CRITICAL SECTION at clock 30
-2025/11/11 17:40:58 [Node 1] Received Request from 2 (Clock=35)
-2025/11/11 17:40:58 [Node 1] Sending REPLY to 2
-2025/11/11 17:40:59 [Node 1] Broadcasting request for CS (Clock=37)
-2025/11/11 17:40:59 [Node 1] Got reply from 3 (1/2)
-2025/11/11 17:40:59 [Node 1] Got reply from 2 (2/2)
-2025/11/11 17:40:59 [Node 1] ENTERING CRITICAL SECTION at clock 42
-2025/11/11 17:40:59 [Node 1] Received Request from 3 (Clock=39)
-2025/11/11 17:40:59 [Node 1] Sending REPLY to 3
-2025/11/11 17:41:02 [Node 1] LEAVING CRITICAL SECTION at clock 44
-2025/11/11 17:41:05 [Node 1] Decided not to enter CS this time
-2025/11/11 17:41:06 [Node 1] Received Request from 2 (Clock=44)
-2025/11/11 17:41:06 [Node 1] Sending REPLY to 2
-2025/11/11 17:41:06 [Node 1] Received Request from 3 (Clock=50)
-2025/11/11 17:41:06 [Node 1] Sending REPLY to 3
-2025/11/11 17:41:09 [Node 1] Decided not to enter CS this time
-2025/11/11 17:41:10 [Node 1] Received Request from 2 (Clock=55)
-2025/11/11 17:41:10 [Node 1] Sending REPLY to 2
-2025/11/11 17:41:12 [Node 1] Received Request from 3 (Clock=58)
-2025/11/11 17:41:12 [Node 1] Sending REPLY to 3
-2025/11/11 17:41:12 [Node 1] Broadcasting request for CS (Clock=60)
-2025/11/11 17:41:12 [Node 1] Got reply from 3 (1/2)
-2025/11/11 17:41:12 [Node 1] Got reply from 2 (2/2)
-2025/11/11 17:41:13 [Node 1] ENTERING CRITICAL SECTION at clock 64
-2025/11/11 17:41:16 [Node 1] LEAVING CRITICAL SECTION at clock 65
-2025/11/11 17:41:17 [Node 1] Decided not to enter CS this time
-2025/11/11 17:41:17 [Node 1] Received Request from 2 (Clock=63)
-2025/11/11 17:41:17 [Node 1] Sending REPLY to 2
-2025/11/11 17:41:20 [Node 1] Received Request from 3 (Clock=66)
-2025/11/11 17:41:20 [Node 1] Sending REPLY to 3
-2025/11/11 17:41:20 [Node 1] Broadcasting request for CS (Clock=69)
-2025/11/11 17:41:20 [Node 1] Got reply from 3 (1/2)
-2025/11/11 17:41:20 [Node 1] Got reply from 2 (2/2)
-2025/11/11 17:41:21 [Node 1] ENTERING CRITICAL SECTION at clock 75
-2025/11/11 17:41:24 [Node 1] LEAVING CRITICAL SECTION at clock 76
-2025/11/11 17:41:25 [Node 1] Received Request from 2 (Clock=74)
-2025/11/11 17:41:25 [Node 1] Sending REPLY to 2
-2025/11/11 17:41:25 [Node 1] Received Request from 3 (Clock=77)
-2025/11/11 17:41:25 [Node 1] Sending REPLY to 3
-2025/11/11 17:41:28 [Node 1] Broadcasting request for CS (Clock=80)
-2025/11/11 17:41:28 [Node 1] Got reply from 2 (1/2)
-2025/11/11 17:41:28 [Node 1] Got reply from 3 (2/2)
-2025/11/11 17:41:29 [Node 1] ENTERING CRITICAL SECTION at clock 86
-2025/11/11 17:41:31 [Node 1] Received Request from 3 (Clock=87)
-2025/11/11 17:41:31 [Node 1] Sending REPLY to 3
-2025/11/11 17:41:32 [Node 1] LEAVING CRITICAL SECTION at clock 88
-2025/11/11 17:41:32 [Node 1] Received Request from 2 (Clock=89)
-2025/11/11 17:41:32 [Node 1] Sending REPLY to 2
+2025/11/12 17:06:22 [Node 1] gRPC server now listening on :5001...
+2025/11/12 17:06:22 [Node 1] Advertised on network (port 5001)
+2025/11/12 17:06:25 [Node 1] Waiting for peers to appear...
+2025/11/12 17:06:25 [Node 1] Discovered new peer: 2 (192.168.2.75:5002)
+2025/11/12 17:06:25 [Node 1] Discovered new peer: 3 (192.168.2.75:5003)
+2025/11/12 17:06:25 [Node 1] Added new peer: 2 (192.168.2.75:5002)
+2025/11/12 17:06:25 [Node 1] Added new peer: 3 (192.168.2.75:5003)
+2025/11/12 17:06:26 [Node 1] Decided not to enter CS this time
+2025/11/12 17:06:26 [Node 1] Received Request from 3 (Clock=0)
+2025/11/12 17:06:26 [Node 1] Sending REPLY to 3
+2025/11/12 17:06:28 [Node 1] Broadcasting request for CS (Clock=1)
+2025/11/12 17:06:28 [Node 1] Got reply from 2 (1/2)
+2025/11/12 17:06:28 [Node 1] Received Request from 2 (Clock=2)
+2025/11/12 17:06:28 [Node 1] Deferred reply to 2
+2025/11/12 17:06:30 [Node 1] Received Reply from 3 (Clock=8)
+2025/11/12 17:06:30 [Node 1] Got reply from 3 (2/2)
+2025/11/12 17:06:30 [Node 1] ENTERING CRITICAL SECTION at clock 9
+2025/11/12 17:06:32 [Node 1] Received Request from 3 (Clock=8)
+2025/11/12 17:06:32 [Node 1] Deferred reply to 3
+2025/11/12 17:06:33 [Node 1] LEAVING CRITICAL SECTION at clock 11
+2025/11/12 17:06:33 [Node 1] Sent deferred reply to 3
+2025/11/12 17:06:33 [Node 1] Sent deferred reply to 2
+2025/11/12 17:06:35 [Node 1] Broadcasting request for CS (Clock=12)
+2025/11/12 17:06:36 [Node 1] Received Reply from 2 (Clock=16)
+2025/11/12 17:06:36 [Node 1] Got reply from 2 (1/2)
+2025/11/12 17:06:39 [Node 1] Received Reply from 3 (Clock=19)
+2025/11/12 17:06:39 [Node 1] Got reply from 3 (2/2)
+2025/11/12 17:06:39 [Node 1] ENTERING CRITICAL SECTION at clock 20
+2025/11/12 17:06:40 [Node 1] Received Request from 2 (Clock=16)
+2025/11/12 17:06:40 [Node 1] Deferred reply to 2
+2025/11/12 17:06:42 [Node 1] LEAVING CRITICAL SECTION at clock 22
+2025/11/12 17:06:42 [Node 1] Sent deferred reply to 2
+2025/11/12 17:06:45 [Node 1] Broadcasting request for CS (Clock=23)
+2025/11/12 17:06:45 [Node 1] Got reply from 3 (1/2)
+2025/11/12 17:06:46 [Node 1] Received Reply from 2 (Clock=27)
+2025/11/12 17:06:46 [Node 1] Got reply from 2 (2/2)
+2025/11/12 17:06:46 [Node 1] ENTERING CRITICAL SECTION at clock 28
+2025/11/12 17:06:49 [Node 1] LEAVING CRITICAL SECTION at clock 29
+2025/11/12 17:06:50 [Node 1] Received Request from 2 (Clock=27)
+2025/11/12 17:06:50 [Node 1] Sending REPLY to 2
+2025/11/12 17:06:52 [Node 1] Broadcasting request for CS (Clock=31)
+2025/11/12 17:06:52 [Node 1] Got reply from 3 (1/2)
+2025/11/12 17:06:52 [Node 1] Received Request from 3 (Clock=32)
+2025/11/12 17:06:52 [Node 1] Deferred reply to 3
+2025/11/12 17:06:54 [Node 1] Received Reply from 2 (Clock=37)
+2025/11/12 17:06:54 [Node 1] Got reply from 2 (2/2)
+2025/11/12 17:06:54 [Node 1] ENTERING CRITICAL SECTION at clock 38
+2025/11/12 17:06:57 [Node 1] LEAVING CRITICAL SECTION at clock 39
+2025/11/12 17:06:57 [Node 1] Sent deferred reply to 3
+2025/11/12 17:06:59 [Node 1] Broadcasting request for CS (Clock=40)
+2025/11/12 17:06:59 [Node 1] Got reply from 2 (1/2)
+2025/11/12 17:07:00 [Node 1] Received Reply from 3 (Clock=44)
+2025/11/12 17:07:00 [Node 1] Got reply from 3 (2/2)
+2025/11/12 17:07:01 [Node 1] ENTERING CRITICAL SECTION at clock 45
+2025/11/12 17:07:02 [Node 1] Received Request from 2 (Clock=41)
+2025/11/12 17:07:02 [Node 1] Deferred reply to 2
+2025/11/12 17:07:03 [Node 1] Received Request from 3 (Clock=45)
+2025/11/12 17:07:03 [Node 1] Deferred reply to 3
+2025/11/12 17:07:04 [Node 1] LEAVING CRITICAL SECTION at clock 48
+2025/11/12 17:07:04 [Node 1] Sent deferred reply to 2
+2025/11/12 17:07:04 [Node 1] Sent deferred reply to 3
+2025/11/12 17:07:05 [Node 1] Broadcasting request for CS (Clock=49)
+2025/11/12 17:07:07 [Node 1] Received Reply from 2 (Clock=53)
+2025/11/12 17:07:07 [Node 1] Got reply from 2 (1/2)
+2025/11/12 17:07:09 [Node 1] Received Request from 2 (Clock=53)
+2025/11/12 17:07:09 [Node 1] Deferred reply to 2
+2025/11/12 17:07:10 [Node 1] Received Reply from 3 (Clock=57)
+2025/11/12 17:07:10 [Node 1] Got reply from 3 (2/2)
+2025/11/12 17:07:10 [Node 1] ENTERING CRITICAL SECTION at clock 58
+2025/11/12 17:07:13 [Node 1] LEAVING CRITICAL SECTION at clock 59
+2025/11/12 17:07:13 [Node 1] Sent deferred reply to 2
+2025/11/12 17:07:16 [Node 1] Received Request from 3 (Clock=57)
+2025/11/12 17:07:16 [Node 1] Sending REPLY to 3
+2025/11/12 17:07:16 [Node 1] Broadcasting request for CS (Clock=61)
+2025/11/12 17:07:17 [Node 1] Received Reply from 2 (Clock=65)
+2025/11/12 17:07:17 [Node 1] Got reply from 2 (1/2)
+2025/11/12 17:07:20 [Node 1] Received Reply from 3 (Clock=68)
+2025/11/12 17:07:20 [Node 1] Got reply from 3 (2/2)
+2025/11/12 17:07:20 [Node 1] ENTERING CRITICAL SECTION at clock 69
+2025/11/12 17:07:21 [Node 1] Received Request from 2 (Clock=65)
+2025/11/12 17:07:21 [Node 1] Deferred reply to 2
+2025/11/12 17:07:23 [Node 1] LEAVING CRITICAL SECTION at clock 71
+2025/11/12 17:07:23 [Node 1] Sent deferred reply to 2
+2025/11/12 17:07:25 [Node 1] Received Request from 3 (Clock=69)
+2025/11/12 17:07:25 [Node 1] Sending REPLY to 3
+2025/11/12 17:07:28 [Node 1] Broadcasting request for CS (Clock=73)
+2025/11/12 17:07:28 [Node 1] Got reply from 2 (1/2)
+2025/11/12 17:07:30 [Node 1] Received Reply from 3 (Clock=80)
+2025/11/12 17:07:30 [Node 1] Got reply from 3 (2/2)
+2025/11/12 17:07:30 [Node 1] ENTERING CRITICAL SECTION at clock 81
+2025/11/12 17:07:31 [Node 1] Received Request from 2 (Clock=77)
+2025/11/12 17:07:31 [Node 1] Deferred reply to 2
+2025/11/12 17:07:33 [Node 1] LEAVING CRITICAL SECTION at clock 83
+2025/11/12 17:07:33 [Node 1] Sent deferred reply to 2
+2025/11/12 17:07:36 [Node 1] Broadcasting request for CS (Clock=84)
+2025/11/12 17:07:36 [Node 1] Got reply from 3 (1/2)
+2025/11/12 17:07:36 [Node 1] Received Reply from 2 (Clock=88)
+2025/11/12 17:07:36 [Node 1] Got reply from 2 (2/2)
+2025/11/12 17:07:36 [Node 1] ENTERING CRITICAL SECTION at clock 89
+2025/11/12 17:07:39 [Node 1] Received Request from 2 (Clock=88)
+2025/11/12 17:07:39 [Node 1] Deferred reply to 2
+2025/11/12 17:07:39 [Node 1] LEAVING CRITICAL SECTION at clock 91
+2025/11/12 17:07:39 [Node 1] Sent deferred reply to 2
+2025/11/12 17:07:42 [Node 1] Broadcasting request for CS (Clock=92)
+2025/11/12 17:07:42 [Node 1] Got reply from 3 (1/2)
+2025/11/12 17:07:42 [Node 1] Received Request from 3 (Clock=93)
+2025/11/12 17:07:42 [Node 1] Deferred reply to 3
+2025/11/12 17:07:42 [Node 1] Received Reply from 2 (Clock=97)
+2025/11/12 17:07:42 [Node 1] Got reply from 2 (2/2)
+2025/11/12 17:07:43 [Node 1] ENTERING CRITICAL SECTION at clock 98
+2025/11/12 17:07:46 [Node 1] LEAVING CRITICAL SECTION at clock 99
+2025/11/12 17:07:46 [Node 1] Sent deferred reply to 3
+2025/11/12 17:07:46 [Node 1] Received Request from 2 (Clock=97)
+2025/11/12 17:07:46 [Node 1] Sending REPLY to 2
+2025/11/12 17:07:49 [Node 1] Broadcasting request for CS (Clock=101)
+2025/11/12 17:07:49 [Node 1] Received Reply from 3 (Clock=105)
+2025/11/12 17:07:49 [Node 1] Got reply from 3 (1/2)
+2025/11/12 17:07:52 [Node 1] Received Reply from 2 (Clock=108)
+2025/11/12 17:07:52 [Node 1] Got reply from 2 (2/2)
+2025/11/12 17:07:52 [Node 1] ENTERING CRITICAL SECTION at clock 109
+2025/11/12 17:07:53 [Node 1] Received Request from 3 (Clock=105)
+2025/11/12 17:07:53 [Node 1] Deferred reply to 3
+2025/11/12 17:07:55 [Node 1] LEAVING CRITICAL SECTION at clock 111
+2025/11/12 17:07:55 [Node 1] Sent deferred reply to 3
+2025/11/12 17:07:57 [Node 1] Received Request from 2 (Clock=109)
+2025/11/12 17:07:57 [Node 1] Sending REPLY to 2
+2025/11/12 17:08:00 [Node 1] Broadcasting request for CS (Clock=113)
+2025/11/12 17:08:00 [Node 1] Got reply from 3 (1/2)
 ```
 
 ### Log - Node 2
 
 ```text
-2025/11/11 17:40:31 [Node 2] gRPC server now listening on :5002...
-2025/11/11 17:40:31 [Node 2] Advertised on network (port 5002)
-2025/11/11 17:40:34 [Node 2] Received Request from 3 (Clock=1)
-2025/11/11 17:40:34 [Node 2] Sending REPLY to 3
-2025/11/11 17:40:34 [Node 2] Waiting for peers to appear...
-2025/11/11 17:40:34 [Node 2] Discovered new peer: node-3 (192.168.2.75:5003)
-2025/11/11 17:40:34 [Node 2] Discovered new peer: node-1 (192.168.2.75:5001)
-2025/11/11 17:40:34 [Node 2] Added new peer: 192.168.2.75:5003
-2025/11/11 17:40:34 [Node 2] Added new peer: 192.168.2.75:5001
-2025/11/11 17:40:35 [Node 2] Decided not to enter CS this time
-2025/11/11 17:40:36 [Node 2] Received Request from 1 (Clock=3)
-2025/11/11 17:40:36 [Node 2] Sending REPLY to 1
-2025/11/11 17:40:37 [Node 2] Broadcasting request for CS (Clock=5)
-2025/11/11 17:40:37 [Node 2] Got reply from 3 (1/2)
-2025/11/11 17:40:37 [Node 2] Got reply from 1 (2/2)
-2025/11/11 17:40:37 [Node 2] ENTERING CRITICAL SECTION at clock 11
-2025/11/11 17:40:40 [Node 2] LEAVING CRITICAL SECTION at clock 12
-2025/11/11 17:40:44 [Node 2] Received Request from 1 (Clock=12)
-2025/11/11 17:40:44 [Node 2] Sending REPLY to 1
-2025/11/11 17:40:44 [Node 2] Received Request from 3 (Clock=14)
-2025/11/11 17:40:44 [Node 2] Sending REPLY to 3
-2025/11/11 17:40:44 [Node 2] Broadcasting request for CS (Clock=16)
-2025/11/11 17:40:44 [Node 2] Got reply from 3 (1/2)
-2025/11/11 17:40:44 [Node 2] Got reply from 1 (2/2)
-2025/11/11 17:40:45 [Node 2] ENTERING CRITICAL SECTION at clock 23
-2025/11/11 17:40:48 [Node 2] LEAVING CRITICAL SECTION at clock 24
-2025/11/11 17:40:51 [Node 2] Received Request from 1 (Clock=21)
-2025/11/11 17:40:51 [Node 2] Sending REPLY to 1
-2025/11/11 17:40:52 [Node 2] Broadcasting request for CS (Clock=27)
-2025/11/11 17:40:52 [Node 2] Got reply from 1 (1/2)
-2025/11/11 17:40:52 [Node 2] Got reply from 3 (2/2)
-2025/11/11 17:40:53 [Node 2] ENTERING CRITICAL SECTION at clock 31
-2025/11/11 17:40:53 [Node 2] Received Request from 3 (Clock=29)
-2025/11/11 17:40:53 [Node 2] Sending REPLY to 3
-2025/11/11 17:40:56 [Node 2] LEAVING CRITICAL SECTION at clock 33
-2025/11/11 17:40:58 [Node 2] Broadcasting request for CS (Clock=35)
-2025/11/11 17:40:58 [Node 2] Got reply from 3 (1/2)
-2025/11/11 17:40:58 [Node 2] Got reply from 1 (2/2)
-2025/11/11 17:40:59 [Node 2] ENTERING CRITICAL SECTION at clock 39
-2025/11/11 17:40:59 [Node 2] Received Request from 1 (Clock=37)
-2025/11/11 17:40:59 [Node 2] Sending REPLY to 1
-2025/11/11 17:40:59 [Node 2] Received Request from 3 (Clock=39)
-2025/11/11 17:40:59 [Node 2] Sending REPLY to 3
-2025/11/11 17:41:02 [Node 2] LEAVING CRITICAL SECTION at clock 42
-2025/11/11 17:41:06 [Node 2] Broadcasting request for CS (Clock=44)
-2025/11/11 17:41:06 [Node 2] Got reply from 3 (1/2)
-2025/11/11 17:41:06 [Node 2] Got reply from 1 (2/2)
-2025/11/11 17:41:06 [Node 2] Received Request from 3 (Clock=50)
-2025/11/11 17:41:06 [Node 2] Sending REPLY to 3
-2025/11/11 17:41:06 [Node 2] ENTERING CRITICAL SECTION at clock 52
-2025/11/11 17:41:09 [Node 2] LEAVING CRITICAL SECTION at clock 53
-2025/11/11 17:41:10 [Node 2] Broadcasting request for CS (Clock=55)
-2025/11/11 17:41:10 [Node 2] Got reply from 1 (1/2)
-2025/11/11 17:41:10 [Node 2] Got reply from 3 (2/2)
-2025/11/11 17:41:11 [Node 2] ENTERING CRITICAL SECTION at clock 58
-2025/11/11 17:41:12 [Node 2] Received Request from 3 (Clock=58)
-2025/11/11 17:41:12 [Node 2] Sending REPLY to 3
-2025/11/11 17:41:12 [Node 2] Received Request from 1 (Clock=60)
-2025/11/11 17:41:12 [Node 2] Sending REPLY to 1
-2025/11/11 17:41:14 [Node 2] LEAVING CRITICAL SECTION at clock 61
-2025/11/11 17:41:17 [Node 2] Broadcasting request for CS (Clock=63)
-2025/11/11 17:41:17 [Node 2] Got reply from 1 (1/2)
-2025/11/11 17:41:17 [Node 2] Got reply from 3 (2/2)
-2025/11/11 17:41:18 [Node 2] ENTERING CRITICAL SECTION at clock 69
-2025/11/11 17:41:20 [Node 2] Received Request from 3 (Clock=66)
-2025/11/11 17:41:20 [Node 2] Sending REPLY to 3
-2025/11/11 17:41:20 [Node 2] Received Request from 1 (Clock=69)
-2025/11/11 17:41:20 [Node 2] Sending REPLY to 1
-2025/11/11 17:41:21 [Node 2] LEAVING CRITICAL SECTION at clock 72
-2025/11/11 17:41:25 [Node 2] Broadcasting request for CS (Clock=74)
-2025/11/11 17:41:25 [Node 2] Got reply from 1 (1/2)
-2025/11/11 17:41:25 [Node 2] Got reply from 3 (2/2)
-2025/11/11 17:41:25 [Node 2] Received Request from 3 (Clock=77)
-2025/11/11 17:41:25 [Node 2] Sending REPLY to 3
-2025/11/11 17:41:25 [Node 2] ENTERING CRITICAL SECTION at clock 81
-2025/11/11 17:41:28 [Node 2] Received Request from 1 (Clock=80)
-2025/11/11 17:41:28 [Node 2] Sending REPLY to 1
-2025/11/11 17:41:28 [Node 2] LEAVING CRITICAL SECTION at clock 83
-2025/11/11 17:41:31 [Node 2] Received Request from 3 (Clock=87)
-2025/11/11 17:41:31 [Node 2] Sending REPLY to 3
-2025/11/11 17:41:32 [Node 2] Broadcasting request for CS (Clock=89)
-2025/11/11 17:41:32 [Node 2] Got reply from 1 (1/2)
-2025/11/11 17:41:32 [Node 2] Got reply from 3 (2/2)
-2025/11/11 17:41:32 [Node 2] ENTERING CRITICAL SECTION at clock 93
-
+2025/11/12 17:06:22 [Node 2] gRPC server now listening on :5002...
+2025/11/12 17:06:22 [Node 2] Advertised on network (port 5002)
+2025/11/12 17:06:25 [Node 2] Waiting for peers to appear...
+2025/11/12 17:06:25 [Node 2] Discovered new peer: 1 (192.168.2.75:5001)
+2025/11/12 17:06:25 [Node 2] Discovered new peer: 3 (192.168.2.75:5003)
+2025/11/12 17:06:25 [Node 2] Added new peer: 1 (192.168.2.75:5001)
+2025/11/12 17:06:25 [Node 2] Added new peer: 3 (192.168.2.75:5003)
+2025/11/12 17:06:26 [Node 2] Decided not to enter CS this time
+2025/11/12 17:06:26 [Node 2] Received Request from 3 (Clock=0)
+2025/11/12 17:06:26 [Node 2] Sending REPLY to 3
+2025/11/12 17:06:28 [Node 2] Received Request from 1 (Clock=1)
+2025/11/12 17:06:28 [Node 2] Sending REPLY to 1
+2025/11/12 17:06:28 [Node 2] Broadcasting request for CS (Clock=2)
+2025/11/12 17:06:30 [Node 2] Received Reply from 3 (Clock=8)
+2025/11/12 17:06:30 [Node 2] Got reply from 3 (1/2)
+2025/11/12 17:06:32 [Node 2] Received Request from 3 (Clock=8)
+2025/11/12 17:06:32 [Node 2] Deferred reply to 3
+2025/11/12 17:06:33 [Node 2] Received Reply from 1 (Clock=12)
+2025/11/12 17:06:33 [Node 2] Got reply from 1 (2/2)
+2025/11/12 17:06:33 [Node 2] ENTERING CRITICAL SECTION at clock 13
+2025/11/12 17:06:35 [Node 2] Received Request from 1 (Clock=12)
+2025/11/12 17:06:35 [Node 2] Deferred reply to 1
+2025/11/12 17:06:36 [Node 2] LEAVING CRITICAL SECTION at clock 15
+2025/11/12 17:06:36 [Node 2] Sent deferred reply to 3
+2025/11/12 17:06:36 [Node 2] Sent deferred reply to 1
+2025/11/12 17:06:40 [Node 2] Broadcasting request for CS (Clock=16)
+2025/11/12 17:06:40 [Node 2] Got reply from 3 (1/2)
+2025/11/12 17:06:42 [Node 2] Received Reply from 1 (Clock=23)
+2025/11/12 17:06:42 [Node 2] Got reply from 1 (2/2)
+2025/11/12 17:06:43 [Node 2] ENTERING CRITICAL SECTION at clock 24
+2025/11/12 17:06:45 [Node 2] Received Request from 1 (Clock=23)
+2025/11/12 17:06:45 [Node 2] Deferred reply to 1
+2025/11/12 17:06:46 [Node 2] LEAVING CRITICAL SECTION at clock 26
+2025/11/12 17:06:46 [Node 2] Sent deferred reply to 1
+2025/11/12 17:06:50 [Node 2] Broadcasting request for CS (Clock=27)
+2025/11/12 17:06:50 [Node 2] Got reply from 1 (1/2)
+2025/11/12 17:06:50 [Node 2] Got reply from 3 (2/2)
+2025/11/12 17:06:51 [Node 2] ENTERING CRITICAL SECTION at clock 33
+2025/11/12 17:06:52 [Node 2] Received Request from 1 (Clock=31)
+2025/11/12 17:06:52 [Node 2] Deferred reply to 1
+2025/11/12 17:06:52 [Node 2] Received Request from 3 (Clock=32)
+2025/11/12 17:06:52 [Node 2] Deferred reply to 3
+2025/11/12 17:06:54 [Node 2] LEAVING CRITICAL SECTION at clock 36
+2025/11/12 17:06:54 [Node 2] Sent deferred reply to 3
+2025/11/12 17:06:54 [Node 2] Sent deferred reply to 1
+2025/11/12 17:06:59 [Node 2] Decided not to enter CS this time
+2025/11/12 17:06:59 [Node 2] Received Request from 1 (Clock=40)
+2025/11/12 17:06:59 [Node 2] Sending REPLY to 1
+2025/11/12 17:07:02 [Node 2] Broadcasting request for CS (Clock=41)
+2025/11/12 17:07:02 [Node 2] Got reply from 3 (1/2)
+2025/11/12 17:07:03 [Node 2] Received Request from 3 (Clock=45)
+2025/11/12 17:07:03 [Node 2] Deferred reply to 3
+2025/11/12 17:07:04 [Node 2] Received Reply from 1 (Clock=49)
+2025/11/12 17:07:04 [Node 2] Got reply from 1 (2/2)
+2025/11/12 17:07:04 [Node 2] ENTERING CRITICAL SECTION at clock 50
+2025/11/12 17:07:05 [Node 2] Received Request from 1 (Clock=49)
+2025/11/12 17:07:05 [Node 2] Deferred reply to 1
+2025/11/12 17:07:07 [Node 2] LEAVING CRITICAL SECTION at clock 52
+2025/11/12 17:07:07 [Node 2] Sent deferred reply to 3
+2025/11/12 17:07:07 [Node 2] Sent deferred reply to 1
+2025/11/12 17:07:09 [Node 2] Broadcasting request for CS (Clock=53)
+2025/11/12 17:07:10 [Node 2] Received Reply from 3 (Clock=57)
+2025/11/12 17:07:10 [Node 2] Got reply from 3 (1/2)
+2025/11/12 17:07:13 [Node 2] Received Reply from 1 (Clock=60)
+2025/11/12 17:07:13 [Node 2] Got reply from 1 (2/2)
+2025/11/12 17:07:14 [Node 2] ENTERING CRITICAL SECTION at clock 61
+2025/11/12 17:07:16 [Node 2] Received Request from 3 (Clock=57)
+2025/11/12 17:07:16 [Node 2] Deferred reply to 3
+2025/11/12 17:07:16 [Node 2] Received Request from 1 (Clock=61)
+2025/11/12 17:07:16 [Node 2] Deferred reply to 1
+2025/11/12 17:07:17 [Node 2] LEAVING CRITICAL SECTION at clock 64
+2025/11/12 17:07:17 [Node 2] Sent deferred reply to 1
+2025/11/12 17:07:17 [Node 2] Sent deferred reply to 3
+2025/11/12 17:07:21 [Node 2] Broadcasting request for CS (Clock=65)
+2025/11/12 17:07:21 [Node 2] Got reply from 3 (1/2)
+2025/11/12 17:07:23 [Node 2] Received Reply from 1 (Clock=72)
+2025/11/12 17:07:23 [Node 2] Got reply from 1 (2/2)
+2025/11/12 17:07:23 [Node 2] ENTERING CRITICAL SECTION at clock 73
+2025/11/12 17:07:25 [Node 2] Received Request from 3 (Clock=69)
+2025/11/12 17:07:25 [Node 2] Deferred reply to 3
+2025/11/12 17:07:26 [Node 2] LEAVING CRITICAL SECTION at clock 75
+2025/11/12 17:07:26 [Node 2] Sent deferred reply to 3
+2025/11/12 17:07:28 [Node 2] Received Request from 1 (Clock=73)
+2025/11/12 17:07:28 [Node 2] Sending REPLY to 1
+2025/11/12 17:07:31 [Node 2] Broadcasting request for CS (Clock=77)
+2025/11/12 17:07:31 [Node 2] Got reply from 3 (1/2)
+2025/11/12 17:07:33 [Node 2] Received Reply from 1 (Clock=84)
+2025/11/12 17:07:33 [Node 2] Got reply from 1 (2/2)
+2025/11/12 17:07:33 [Node 2] ENTERING CRITICAL SECTION at clock 85
+2025/11/12 17:07:36 [Node 2] Received Request from 1 (Clock=84)
+2025/11/12 17:07:36 [Node 2] Deferred reply to 1
+2025/11/12 17:07:36 [Node 2] LEAVING CRITICAL SECTION at clock 87
+2025/11/12 17:07:36 [Node 2] Sent deferred reply to 1
+2025/11/12 17:07:39 [Node 2] Broadcasting request for CS (Clock=88)
+2025/11/12 17:07:39 [Node 2] Got reply from 3 (1/2)
+2025/11/12 17:07:39 [Node 2] Received Reply from 1 (Clock=92)
+2025/11/12 17:07:39 [Node 2] Got reply from 1 (2/2)
+2025/11/12 17:07:39 [Node 2] ENTERING CRITICAL SECTION at clock 93
+2025/11/12 17:07:42 [Node 2] Received Request from 1 (Clock=92)
+2025/11/12 17:07:42 [Node 2] Deferred reply to 1
+2025/11/12 17:07:42 [Node 2] Received Request from 3 (Clock=93)
+2025/11/12 17:07:42 [Node 2] Deferred reply to 3
+2025/11/12 17:07:42 [Node 2] LEAVING CRITICAL SECTION at clock 96
+2025/11/12 17:07:42 [Node 2] Sent deferred reply to 3
+2025/11/12 17:07:42 [Node 2] Sent deferred reply to 1
+2025/11/12 17:07:46 [Node 2] Broadcasting request for CS (Clock=97)
+2025/11/12 17:07:46 [Node 2] Got reply from 1 (1/2)
+2025/11/12 17:07:49 [Node 2] Received Request from 1 (Clock=101)
+2025/11/12 17:07:49 [Node 2] Deferred reply to 1
+2025/11/12 17:07:49 [Node 2] Received Reply from 3 (Clock=105)
+2025/11/12 17:07:49 [Node 2] Got reply from 3 (2/2)
+2025/11/12 17:07:49 [Node 2] ENTERING CRITICAL SECTION at clock 106
+2025/11/12 17:07:52 [Node 2] LEAVING CRITICAL SECTION at clock 107
+2025/11/12 17:07:52 [Node 2] Sent deferred reply to 1
+2025/11/12 17:07:53 [Node 2] Received Request from 3 (Clock=105)
+2025/11/12 17:07:53 [Node 2] Sending REPLY to 3
+2025/11/12 17:07:57 [Node 2] Broadcasting request for CS (Clock=109)
+2025/11/12 17:07:57 [Node 2] Got reply from 1 (1/2)
+2025/11/12 17:07:59 [Node 2] Received Reply from 3 (Clock=116)
+2025/11/12 17:07:59 [Node 2] Got reply from 3 (2/2)
+2025/11/12 17:07:59 [Node 2] ENTERING CRITICAL SECTION at clock 117
+2025/11/12 17:08:00 [Node 2] Received Request from 1 (Clock=113)
+2025/11/12 17:08:00 [Node 2] Deferred reply to 1
 ```
 
 ### Log - Node 3
 
 ```text
-2025/11/11 17:40:30 [Node 3] gRPC server now listening on :5003...
-2025/11/11 17:40:30 [Node 3] Advertised on network (port 5003)
-2025/11/11 17:40:33 [Node 3] Waiting for peers to appear...
-2025/11/11 17:40:33 [Node 3] Discovered new peer: node-2 (192.168.2.75:5002)
-2025/11/11 17:40:33 [Node 3] Discovered new peer: node-1 (192.168.2.75:5001)
-2025/11/11 17:40:33 [Node 3] Added new peer: 192.168.2.75:5002
-2025/11/11 17:40:33 [Node 3] Added new peer: 192.168.2.75:5001
-2025/11/11 17:40:34 [Node 3] Broadcasting request for CS (Clock=1)
-2025/11/11 17:40:34 [Node 3] Got reply from 1 (2/2)
-2025/11/11 17:40:34 [Node 3] Got reply from 2 (1/2)
-2025/11/11 17:40:34 [Node 3] ENTERING CRITICAL SECTION at clock 4
-2025/11/11 17:40:36 [Node 3] Received Request from 1 (Clock=3)
-2025/11/11 17:40:36 [Node 3] Sending REPLY to 1
-2025/11/11 17:40:37 [Node 3] Received Request from 2 (Clock=5)
-2025/11/11 17:40:37 [Node 3] Sending REPLY to 2
-2025/11/11 17:40:37 [Node 3] LEAVING CRITICAL SECTION at clock 7
-2025/11/11 17:40:40 [Node 3] Decided not to enter CS this time
-2025/11/11 17:40:44 [Node 3] Received Request from 1 (Clock=12)
-2025/11/11 17:40:44 [Node 3] Sending REPLY to 1
-2025/11/11 17:40:44 [Node 3] Broadcasting request for CS (Clock=14)
-2025/11/11 17:40:44 [Node 3] Got reply from 1 (1/2)
-2025/11/11 17:40:44 [Node 3] Got reply from 2 (2/2)
-2025/11/11 17:40:44 [Node 3] ENTERING CRITICAL SECTION at clock 19
-2025/11/11 17:40:44 [Node 3] Received Request from 2 (Clock=16)
-2025/11/11 17:40:44 [Node 3] Sending REPLY to 2
-2025/11/11 17:40:47 [Node 3] LEAVING CRITICAL SECTION at clock 21
-2025/11/11 17:40:49 [Node 3] Decided not to enter CS this time
-2025/11/11 17:40:51 [Node 3] Received Request from 1 (Clock=21)
-2025/11/11 17:40:51 [Node 3] Sending REPLY to 1
-2025/11/11 17:40:52 [Node 3] Received Request from 2 (Clock=27)
-2025/11/11 17:40:52 [Node 3] Sending REPLY to 2
-2025/11/11 17:40:53 [Node 3] Broadcasting request for CS (Clock=29)
-2025/11/11 17:40:53 [Node 3] Got reply from 1 (1/2)
-2025/11/11 17:40:53 [Node 3] Got reply from 2 (2/2)
-2025/11/11 17:40:54 [Node 3] ENTERING CRITICAL SECTION at clock 34
-2025/11/11 17:40:57 [Node 3] LEAVING CRITICAL SECTION at clock 35
-2025/11/11 17:40:58 [Node 3] Received Request from 2 (Clock=35)
-2025/11/11 17:40:58 [Node 3] Sending REPLY to 2
-2025/11/11 17:40:59 [Node 3] Received Request from 1 (Clock=37)
-2025/11/11 17:40:59 [Node 3] Sending REPLY to 1
-2025/11/11 17:40:59 [Node 3] Broadcasting request for CS (Clock=39)
-2025/11/11 17:40:59 [Node 3] Got reply from 1 (1/2)
-2025/11/11 17:40:59 [Node 3] Got reply from 2 (2/2)
-2025/11/11 17:41:00 [Node 3] ENTERING CRITICAL SECTION at clock 46
-2025/11/11 17:41:03 [Node 3] LEAVING CRITICAL SECTION at clock 47
-2025/11/11 17:41:06 [Node 3] Received Request from 2 (Clock=44)
-2025/11/11 17:41:06 [Node 3] Sending REPLY to 2
-2025/11/11 17:41:06 [Node 3] Broadcasting request for CS (Clock=50)
-2025/11/11 17:41:06 [Node 3] Got reply from 2 (1/2)
-2025/11/11 17:41:06 [Node 3] Got reply from 1 (2/2)
-2025/11/11 17:41:06 [Node 3] ENTERING CRITICAL SECTION at clock 54
-2025/11/11 17:41:09 [Node 3] LEAVING CRITICAL SECTION at clock 55
-2025/11/11 17:41:10 [Node 3] Received Request from 2 (Clock=55)
-2025/11/11 17:41:10 [Node 3] Sending REPLY to 2
-2025/11/11 17:41:12 [Node 3] Broadcasting request for CS (Clock=58)
-2025/11/11 17:41:12 [Node 3] Got reply from 1 (1/2)
-2025/11/11 17:41:12 [Node 3] Got reply from 2 (2/2)
-2025/11/11 17:41:12 [Node 3] Received Request from 1 (Clock=60)
-2025/11/11 17:41:12 [Node 3] Sending REPLY to 1
-2025/11/11 17:41:12 [Node 3] ENTERING CRITICAL SECTION at clock 62
-2025/11/11 17:41:15 [Node 3] LEAVING CRITICAL SECTION at clock 63
-2025/11/11 17:41:17 [Node 3] Received Request from 2 (Clock=63)
-2025/11/11 17:41:17 [Node 3] Sending REPLY to 2
-2025/11/11 17:41:20 [Node 3] Broadcasting request for CS (Clock=66)
-2025/11/11 17:41:20 [Node 3] Got reply from 1 (1/2)
-2025/11/11 17:41:20 [Node 3] Got reply from 2 (2/2)
-2025/11/11 17:41:20 [Node 3] Received Request from 1 (Clock=69)
-2025/11/11 17:41:20 [Node 3] Sending REPLY to 1
-2025/11/11 17:41:20 [Node 3] ENTERING CRITICAL SECTION at clock 73
-2025/11/11 17:41:23 [Node 3] LEAVING CRITICAL SECTION at clock 74
-2025/11/11 17:41:25 [Node 3] Received Request from 2 (Clock=74)
-2025/11/11 17:41:25 [Node 3] Sending REPLY to 2
-2025/11/11 17:41:25 [Node 3] Broadcasting request for CS (Clock=77)
-2025/11/11 17:41:25 [Node 3] Got reply from 1 (2/2)
-2025/11/11 17:41:25 [Node 3] Got reply from 2 (1/2)
-2025/11/11 17:41:26 [Node 3] ENTERING CRITICAL SECTION at clock 83
-2025/11/11 17:41:28 [Node 3] Received Request from 1 (Clock=80)
-2025/11/11 17:41:28 [Node 3] Sending REPLY to 1
-2025/11/11 17:41:29 [Node 3] LEAVING CRITICAL SECTION at clock 85
-2025/11/11 17:41:31 [Node 3] Broadcasting request for CS (Clock=87)
-2025/11/11 17:41:31 [Node 3] Got reply from 2 (1/2)
-2025/11/11 17:41:31 [Node 3] Got reply from 1 (2/2)
-2025/11/11 17:41:31 [Node 3] ENTERING CRITICAL SECTION at clock 90
-2025/11/11 17:41:32 [Node 3] Received Request from 2 (Clock=89)
-2025/11/11 17:41:32 [Node 3] Sending REPLY to 2
-2025/11/11 17:41:34 [Node 3] LEAVING CRITICAL SECTION at clock 92
-
+2025/11/12 17:06:22 [Node 3] gRPC server now listening on :5003...
+2025/11/12 17:06:22 [Node 3] Advertised on network (port 5003)
+2025/11/12 17:06:25 [Node 3] Waiting for peers to appear...
+2025/11/12 17:06:25 [Node 3] Discovered new peer: 1 (192.168.2.75:5001)
+2025/11/12 17:06:25 [Node 3] Discovered new peer: 2 (192.168.2.75:5002)
+2025/11/12 17:06:25 [Node 3] Added new peer: 1 (192.168.2.75:5001)
+2025/11/12 17:06:25 [Node 3] Added new peer: 2 (192.168.2.75:5002)
+2025/11/12 17:06:26 [Node 3] Broadcasting request for CS (Clock=0)
+2025/11/12 17:06:26 [Node 3] Got reply from 1 (1/2)
+2025/11/12 17:06:26 [Node 3] Got reply from 2 (2/2)
+2025/11/12 17:06:27 [Node 3] ENTERING CRITICAL SECTION at clock 4
+2025/11/12 17:06:28 [Node 3] Received Request from 1 (Clock=1)
+2025/11/12 17:06:28 [Node 3] Deferred reply to 1
+2025/11/12 17:06:28 [Node 3] Received Request from 2 (Clock=2)
+2025/11/12 17:06:28 [Node 3] Deferred reply to 2
+2025/11/12 17:06:30 [Node 3] LEAVING CRITICAL SECTION at clock 7
+2025/11/12 17:06:30 [Node 3] Sent deferred reply to 1
+2025/11/12 17:06:30 [Node 3] Sent deferred reply to 2
+2025/11/12 17:06:32 [Node 3] Broadcasting request for CS (Clock=8)
+2025/11/12 17:06:33 [Node 3] Received Reply from 1 (Clock=12)
+2025/11/12 17:06:33 [Node 3] Got reply from 1 (1/2)
+2025/11/12 17:06:35 [Node 3] Received Request from 1 (Clock=12)
+2025/11/12 17:06:35 [Node 3] Deferred reply to 1
+2025/11/12 17:06:36 [Node 3] Received Reply from 2 (Clock=16)
+2025/11/12 17:06:36 [Node 3] Got reply from 2 (2/2)
+2025/11/12 17:06:36 [Node 3] ENTERING CRITICAL SECTION at clock 17
+2025/11/12 17:06:39 [Node 3] LEAVING CRITICAL SECTION at clock 18
+2025/11/12 17:06:39 [Node 3] Sent deferred reply to 1
+2025/11/12 17:06:40 [Node 3] Received Request from 2 (Clock=16)
+2025/11/12 17:06:40 [Node 3] Sending REPLY to 2
+2025/11/12 17:06:44 [Node 3] Decided not to enter CS this time
+2025/11/12 17:06:45 [Node 3] Received Request from 1 (Clock=23)
+2025/11/12 17:06:45 [Node 3] Sending REPLY to 1
+2025/11/12 17:06:46 [Node 3] Decided not to enter CS this time
+2025/11/12 17:06:49 [Node 3] Decided not to enter CS this time
+2025/11/12 17:06:50 [Node 3] Received Request from 2 (Clock=27)
+2025/11/12 17:06:50 [Node 3] Sending REPLY to 2
+2025/11/12 17:06:52 [Node 3] Received Request from 1 (Clock=31)
+2025/11/12 17:06:52 [Node 3] Sending REPLY to 1
+2025/11/12 17:06:52 [Node 3] Broadcasting request for CS (Clock=32)
+2025/11/12 17:06:54 [Node 3] Received Reply from 2 (Clock=37)
+2025/11/12 17:06:54 [Node 3] Got reply from 2 (1/2)
+2025/11/12 17:06:57 [Node 3] Received Reply from 1 (Clock=40)
+2025/11/12 17:06:57 [Node 3] Got reply from 1 (2/2)
+2025/11/12 17:06:57 [Node 3] ENTERING CRITICAL SECTION at clock 41
+2025/11/12 17:06:59 [Node 3] Received Request from 1 (Clock=40)
+2025/11/12 17:06:59 [Node 3] Deferred reply to 1
+2025/11/12 17:07:00 [Node 3] LEAVING CRITICAL SECTION at clock 43
+2025/11/12 17:07:00 [Node 3] Sent deferred reply to 1
+2025/11/12 17:07:02 [Node 3] Received Request from 2 (Clock=41)
+2025/11/12 17:07:02 [Node 3] Sending REPLY to 2
+2025/11/12 17:07:03 [Node 3] Broadcasting request for CS (Clock=45)
+2025/11/12 17:07:04 [Node 3] Received Reply from 1 (Clock=49)
+2025/11/12 17:07:04 [Node 3] Got reply from 1 (1/2)
+2025/11/12 17:07:05 [Node 3] Received Request from 1 (Clock=49)
+2025/11/12 17:07:05 [Node 3] Deferred reply to 1
+2025/11/12 17:07:07 [Node 3] Received Reply from 2 (Clock=53)
+2025/11/12 17:07:07 [Node 3] Got reply from 2 (2/2)
+2025/11/12 17:07:07 [Node 3] ENTERING CRITICAL SECTION at clock 54
+2025/11/12 17:07:09 [Node 3] Received Request from 2 (Clock=53)
+2025/11/12 17:07:09 [Node 3] Deferred reply to 2
+2025/11/12 17:07:10 [Node 3] LEAVING CRITICAL SECTION at clock 56
+2025/11/12 17:07:10 [Node 3] Sent deferred reply to 2
+2025/11/12 17:07:10 [Node 3] Sent deferred reply to 1
+2025/11/12 17:07:12 [Node 3] Decided not to enter CS this time
+2025/11/12 17:07:16 [Node 3] Broadcasting request for CS (Clock=57)
+2025/11/12 17:07:16 [Node 3] Got reply from 1 (1/2)
+2025/11/12 17:07:16 [Node 3] Received Request from 1 (Clock=61)
+2025/11/12 17:07:16 [Node 3] Deferred reply to 1
+2025/11/12 17:07:17 [Node 3] Received Reply from 2 (Clock=65)
+2025/11/12 17:07:17 [Node 3] Got reply from 2 (2/2)
+2025/11/12 17:07:17 [Node 3] ENTERING CRITICAL SECTION at clock 66
+2025/11/12 17:07:20 [Node 3] LEAVING CRITICAL SECTION at clock 67
+2025/11/12 17:07:20 [Node 3] Sent deferred reply to 1
+2025/11/12 17:07:21 [Node 3] Received Request from 2 (Clock=65)
+2025/11/12 17:07:21 [Node 3] Sending REPLY to 2
+2025/11/12 17:07:25 [Node 3] Broadcasting request for CS (Clock=69)
+2025/11/12 17:07:25 [Node 3] Got reply from 1 (1/2)
+2025/11/12 17:07:26 [Node 3] Received Reply from 2 (Clock=76)
+2025/11/12 17:07:26 [Node 3] Got reply from 2 (2/2)
+2025/11/12 17:07:27 [Node 3] ENTERING CRITICAL SECTION at clock 77
+2025/11/12 17:07:28 [Node 3] Received Request from 1 (Clock=73)
+2025/11/12 17:07:28 [Node 3] Deferred reply to 1
+2025/11/12 17:07:30 [Node 3] LEAVING CRITICAL SECTION at clock 79
+2025/11/12 17:07:30 [Node 3] Sent deferred reply to 1
+2025/11/12 17:07:31 [Node 3] Received Request from 2 (Clock=77)
+2025/11/12 17:07:31 [Node 3] Sending REPLY to 2
+2025/11/12 17:07:33 [Node 3] Decided not to enter CS this time
+2025/11/12 17:07:36 [Node 3] Received Request from 1 (Clock=84)
+2025/11/12 17:07:36 [Node 3] Sending REPLY to 1
+2025/11/12 17:07:37 [Node 3] Decided not to enter CS this time
+2025/11/12 17:07:38 [Node 3] Decided not to enter CS this time
+2025/11/12 17:07:39 [Node 3] Received Request from 2 (Clock=88)
+2025/11/12 17:07:39 [Node 3] Sending REPLY to 2
+2025/11/12 17:07:40 [Node 3] Decided not to enter CS this time
+2025/11/12 17:07:42 [Node 3] Received Request from 1 (Clock=92)
+2025/11/12 17:07:42 [Node 3] Sending REPLY to 1
+2025/11/12 17:07:42 [Node 3] Broadcasting request for CS (Clock=93)
+2025/11/12 17:07:42 [Node 3] Received Reply from 2 (Clock=97)
+2025/11/12 17:07:42 [Node 3] Got reply from 2 (1/2)
+2025/11/12 17:07:46 [Node 3] Received Reply from 1 (Clock=100)
+2025/11/12 17:07:46 [Node 3] Got reply from 1 (2/2)
+2025/11/12 17:07:46 [Node 3] ENTERING CRITICAL SECTION at clock 101
+2025/11/12 17:07:46 [Node 3] Received Request from 2 (Clock=97)
+2025/11/12 17:07:46 [Node 3] Deferred reply to 2
+2025/11/12 17:07:49 [Node 3] Received Request from 1 (Clock=101)
+2025/11/12 17:07:49 [Node 3] Deferred reply to 1
+2025/11/12 17:07:49 [Node 3] LEAVING CRITICAL SECTION at clock 104
+2025/11/12 17:07:49 [Node 3] Sent deferred reply to 1
+2025/11/12 17:07:49 [Node 3] Sent deferred reply to 2
+2025/11/12 17:07:53 [Node 3] Broadcasting request for CS (Clock=105)
+2025/11/12 17:07:53 [Node 3] Got reply from 2 (1/2)
+2025/11/12 17:07:55 [Node 3] Received Reply from 1 (Clock=112)
+2025/11/12 17:07:55 [Node 3] Got reply from 1 (2/2)
+2025/11/12 17:07:56 [Node 3] ENTERING CRITICAL SECTION at clock 113
+2025/11/12 17:07:57 [Node 3] Received Request from 2 (Clock=109)
+2025/11/12 17:07:57 [Node 3] Deferred reply to 2
+2025/11/12 17:07:59 [Node 3] LEAVING CRITICAL SECTION at clock 115
+2025/11/12 17:07:59 [Node 3] Sent deferred reply to 2
+2025/11/12 17:08:00 [Node 3] Received Request from 1 (Clock=113)
+2025/11/12 17:08:00 [Node 3] Sending REPLY to 1
+2025/11/12 17:08:01 [Node 3] Broadcasting request for CS (Clock=117)
 ```
 
 ## Implementation
