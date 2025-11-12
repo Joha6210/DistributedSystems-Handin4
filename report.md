@@ -10,7 +10,6 @@
 - Appendix
 
 ## System requirements
-Context, motivation, and high-level problem statement. Keep scope and audience explicit.
 
 This project aims to implement an version of the Ricart-Argawala algorithm to uphold mutual exclusion in a distributed system in golang.
 
@@ -52,11 +51,16 @@ This is done by having each node that is requesting/wanting to enter the CS, wai
 Every node in the system, will keep an internal queue of requests that when the nodes defer an reply it will add the request to the queue (if the request is sent after the node itself wants to enter the CS). When the node has been granted access to the CS, done the work that was necessary, it will then reply to all of the request in queue that they can access the CS.
 
 ## Discussion of Ricart-Argawala implementation
+The projects implementation of the Ricart-Argawala algorithm meets the criteria that applies to an algorithm used for mutual exclusion in a distributed system. By examining the logs of the 3 nodes, we can see that at most one node is accessing the CS at a given time, while the others are waiting for their turn. By announcing on the network when the node, currently accessing the CS, is done, it will let the other nodes use the resource at some point. Each node will let other nodes gain access first, if they requested it first, based on the Lamport Clock of the system.
+
+- ME1 (safe): at most one process in CS at any time  
+- ME2 (live): request to enter/exit eventually succeeds.
+- ME3 (order): entry to CS respects happens-before of enter() calls
+[Coordination & Agreement](https://learnit.itu.dk/pluginfile.php/394900/course/section/165227/Coordination_and_agreement.pdf?time=1761814143344) (pdf slide 10)
 
 Node 3 broadcasts a CS request:
 
 `2025/11/12 17:06:26 [Node 3] Broadcasting request for CS (Clock=0)`
-
 
 Node 1 and Node 2 each receive this request and send a reply:
 
